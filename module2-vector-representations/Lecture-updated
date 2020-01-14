@@ -1,0 +1,719 @@
+
+Lambda School Data Science
+
+Unit 4, Sprint 1, Module 2
+
+Vector Representations (Prepare)
+As we learned yesterday, machines cannot intrepret raw text. We need to transform that text into something we/machines can more readily analyze. Yesterday, we did simple counts of counts to summarize the content of Amazon reviews. Today, we'll extend those concepts to talk about vector representations such as Bag of Words (BoW) and word embedding models. We'll use those representations for search, visualization, and prepare for our classification day tomorrow.
+
+Processing text data to prepare it for maching learning models often means translating the information from documents into a numerical format. Bag-of-Words approaches (sometimes referred to as Frequency-Based word embeddings) accomplish this by "vectorizing" tokenized documents. This is done by representing each document as a row in a dataframe and creating a column for each unique word in the corpora (group of documents). The presence or lack of a given word in a document is then represented either as a raw count of how many times a given word appears in a document (CountVectorizer) or as that word's TF-IDF score (TfidfVectorizer).
+
+On the python side, we will be focusing on sklearn and spacy today.
+
+Case Study
+We're going to pretend we're on the datascience team at the BBC. We want to recommend articles to visiters to on the BBC website based on the article they just read. Our team wants
+
+Dataset:
+
+D. Greene and P. Cunningham. "Practical Solutions to the Problem of Diagonal Dominance in Kernel Document Clustering", Proc. ICML 2006. Please note that the dataset has been sampled down to tech articles only.
+
+Learning Objectives
+Part 1: Represent a document as a vector
+Part 2: Query Documents by Similarity
+Part 3: Apply word embedding models to create document vectors
+Represent a document as a vector (Learn)
+
+Overview
+In this section, we are going to create Document Term Matrices (DTM). Each column represents a word. Each row represents a document. The value in each cell can be range of different things. The most traditional: counts of appearences of words, does the word appear at all (binary), and term-frequency inverse-document frequence (TF-IDF).
+
+Discussion: Don't we loose all the context and grammer if we do this? So Why does it work?
+
+Follow Along
+In [1]:
+""" Import Statements """
+
+# Classics
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.neighbors import NearestNeighbors
+from sklearn.decomposition import PCA
+
+import spacy
+nlp = spacy.load("en_core_web_lg")
+Warm Up (3 Minutes)
+
+Extract the tokens from this sentence using Spacy. Text is from OpenAI
+
+In [2]:
+text = "We created a new dataset which emphasizes diversity of content, by scraping content from the Internet. In order to preserve document quality, we used only pages which have been curated/filtered by humans—specifically, we used outbound links from Reddit which received at least 3 karma. This can be thought of as a heuristic indicator for whether other users found the link interesting (whether educational or funny), leading to higher data quality than other similar datasets, such as CommonCrawl."
+In [3]:
+doc = nlp(text)
+
+print([token.lemma_ for token in doc if (token.is_stop != True) and (token.is_punct != True)])
+['create', 'new', 'dataset', 'emphasize', 'diversity', 'content', 'scrape', 'content', 'internet', 'order', 'preserve', 'document', 'quality', 'page', 'curate', 'filter', 'human', 'specifically', 'outbound', 'link', 'Reddit', 'receive', '3', 'karma', 'think', 'heuristic', 'indicator', 'user', 'find', 'link', 'interesting', 'educational', 'funny', 'lead', 'high', 'datum', 'quality', 'similar', 'dataset', 'CommonCrawl']
+In [4]:
+import os 
+
+def gather_data(filefolder):
+    """ Produces List of Documents from a Directory
+    
+    filefolder (str): a path of .txt files
+    
+    returns list of strings 
+    """
+    
+    data = []
+    
+    files = os.listdir(filefolder) # Causes variation across machines
+    
+    for article in files: 
+        
+        path = os.path.join(filefolder, article)
+                    
+        if  path[-3:] == 'txt':
+            with open(path, 'rb') as f:
+                data.append(f.read())
+    
+    return data
+In [5]:
+data = gather_data('./data')
+In [6]:
+data[0]
+Out[6]:
+b'Mobiles rack up 20 years of use\n\nMobile phones in the UK are celebrating their 20th anniversary this weekend.\n\nBritain\'s first mobile phone call was made across the Vodafone network on 1 January 1985 by veteran comedian Ernie Wise. In the 20 years since that day, mobile phones have become an integral part of modern life and now almost 90% of Britons own a handset. Mobiles have become so popular that many people use their handset as their only phone and rarely use a landline.\n\nThe first ever call over a portable phone was made in 1973 in New York but it took 10 years for the first commercial mobile service to be launched. The UK was not far behind the rest of the world in setting up networks in 1985 that let people make calls while they walked. The first call was made from St Katherine\'s dock to Vodafone\'s head office in Newbury which at the time was over a curry house. For the first nine days of 1985 Vodafone was the only firm with a mobile network in the UK. Then on 10 January Cellnet (now O2) launched its service. Mike Caudwell, spokesman for Vodafone, said that when phones were launched they were the size of a briefcase, cost about \xc2\xa32,000 and had a battery life of little more than 20 minutes.\n\n"Despite that they were hugely popular in the mid-80s," he said. "They became a yuppy must-have and a status symbol among young wealthy business folk." This was also despite the fact that the phones used analogue radio signals to communicate which made them very easy to eavesdrop on. He said it took Vodafone almost nine years to rack up its first million customers but only 18 months to get the second million. "It\'s very easy to forget that in 1983 when we put the bid document in we were forecasting that the total market would be two million people," he said. "Cellnet was forecasting half that." Now Vodafone has 14m customers in the UK alone. Cellnet and Vodafone were the only mobile phone operators in the UK until 1993 when One2One (now T-Mobile) was launched. Orange had its UK launch in 1994. Both newcomers operated digital mobile networks and now all operators use this technology. The analogue spectrum for the old phones has been retired. Called Global System for Mobiles (GSM) this is now the most widely used phone technology on the planet and is used to help more than 1.2 billion people make calls. Mr Caudwell said the advent of digital technology also helped to introduce all those things, such as text messaging and roaming that have made mobiles so popular.\n'
+CountVectorizer
+In [7]:
+from sklearn.feature_extraction.text import CountVectorizer
+
+# list of text documents
+text = ["We created a new dataset which emphasizes diversity of content, by scraping content from the Internet."," In order to preserve document quality, we used only pages which have been curated/filtered by humans—specifically, we used outbound links from Reddit which received at least 3 karma."," This can be thought of as a heuristic indicator for whether other users found the link interesting (whether educational or funny), leading to higher data quality than other similar datasets, such as CommonCrawl."]
+
+# create the transformer
+vect = CountVectorizer()
+
+# build vocab
+vect.fit(text)
+
+# transform text
+dtm = vect.transform(text)
+
+# Create a Vocabulary
+# The vocabulary establishes all of the possible words that we might use.
+
+# The vocabulary dictionary does not represent the counts of words!!
+In [8]:
+print(vect.get_feature_names())
+['as', 'at', 'be', 'been', 'by', 'can', 'commoncrawl', 'content', 'created', 'curated', 'data', 'dataset', 'datasets', 'diversity', 'document', 'educational', 'emphasizes', 'filtered', 'for', 'found', 'from', 'funny', 'have', 'heuristic', 'higher', 'humans', 'in', 'indicator', 'interesting', 'internet', 'karma', 'leading', 'least', 'link', 'links', 'new', 'of', 'only', 'or', 'order', 'other', 'outbound', 'pages', 'preserve', 'quality', 'received', 'reddit', 'scraping', 'similar', 'specifically', 'such', 'than', 'the', 'this', 'thought', 'to', 'used', 'users', 'we', 'whether', 'which']
+In [11]:
+text[:25]
+Out[11]:
+['We created a new dataset which emphasizes diversity of content, by scraping content from the Internet.',
+ ' In order to preserve document quality, we used only pages which have been curated/filtered by humans—specifically, we used outbound links from Reddit which received at least 3 karma.',
+ ' This can be thought of as a heuristic indicator for whether other users found the link interesting (whether educational or funny), leading to higher data quality than other similar datasets, such as CommonCrawl.']
+In [9]:
+print(dtm)
+  (0, 4)	1
+  (0, 7)	2
+  (0, 8)	1
+  (0, 11)	1
+  (0, 13)	1
+  (0, 16)	1
+  (0, 20)	1
+  (0, 29)	1
+  (0, 35)	1
+  (0, 36)	1
+  (0, 47)	1
+  (0, 52)	1
+  (0, 58)	1
+  (0, 60)	1
+  (1, 1)	1
+  (1, 3)	1
+  (1, 4)	1
+  (1, 9)	1
+  (1, 14)	1
+  (1, 17)	1
+  (1, 20)	1
+  (1, 22)	1
+  (1, 25)	1
+  (1, 26)	1
+  (1, 30)	1
+  :	:
+  (2, 10)	1
+  (2, 12)	1
+  (2, 15)	1
+  (2, 18)	1
+  (2, 19)	1
+  (2, 21)	1
+  (2, 23)	1
+  (2, 24)	1
+  (2, 27)	1
+  (2, 28)	1
+  (2, 31)	1
+  (2, 33)	1
+  (2, 36)	1
+  (2, 38)	1
+  (2, 40)	2
+  (2, 44)	1
+  (2, 48)	1
+  (2, 50)	1
+  (2, 51)	1
+  (2, 52)	1
+  (2, 53)	1
+  (2, 54)	1
+  (2, 55)	1
+  (2, 57)	1
+  (2, 59)	2
+In [12]:
+# Dealing with Sparse Matrix
+dtm.todense()
+Out[12]:
+matrix([[0, 0, 0, 0, 1, 0, 0, 2, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1,
+         0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0,
+         0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1],
+        [0, 1, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1,
+         0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1,
+         1, 1, 1, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 2, 0, 2, 0, 2],
+        [2, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0,
+         1, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 2, 0,
+         0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 0, 2, 0]])
+In [13]:
+# Get Word Counts for each document
+dtm = pd.DataFrame(dtm.todense(), columns=vect.get_feature_names())
+dtm
+Out[13]:
+as	at	be	been	by	can	commoncrawl	content	created	curated	...	than	the	this	thought	to	used	users	we	whether	which
+0	0	0	0	0	1	0	0	2	1	0	...	0	1	0	0	0	0	0	1	0	1
+1	0	1	0	1	1	0	0	0	0	1	...	0	0	0	0	1	2	0	2	0	2
+2	2	0	1	0	0	1	1	0	0	0	...	1	1	1	1	1	0	1	0	2	0
+3 rows × 61 columns
+
+In [ ]:
+data[0][:25]
+In [15]:
+len(data)
+Out[15]:
+401
+Three Minute Challenge:
+
+Apply CountVectorizer to our BBC Data
+Store results in a dataframe called dtm
+Extra Challenge - Try to Customize CountVectorizer with Spacy Processing
+In [18]:
+# Apply CountVectorizer to our Data
+# Use custom Spacy Vectorizer
+# BBC articles in `data` variable
+
+from sklearn.feature_extraction.text import CountVectorizer
+
+vect = CountVectorizer(stop_words='english')
+
+#Learn our Vocab
+vect.fit(data)
+
+# Get sparse dtm
+dtm = vect.transform(data)
+
+dtm = pd.DataFrame(dtm.todense(), columns=vect.get_feature_names())
+In [19]:
+dtm.head()
+Out[19]:
+00	000	000s	0051	007	01	028	04m	05	0530	...	zip	zodiac	zombie	zombies	zone	zonealarm	zones	zoom	zooms	zurich
+0	0	1	0	0	0	0	0	0	0	0	...	0	0	0	0	0	0	0	0	0	0
+1	0	0	0	0	0	0	0	0	0	0	...	0	0	0	0	0	0	0	0	0	0
+2	0	3	0	0	0	0	0	0	0	0	...	0	0	0	0	0	0	0	0	0	0
+3	0	0	0	0	0	0	0	0	0	0	...	0	0	0	0	0	0	0	0	0	0
+4	0	0	0	0	0	0	0	0	0	0	...	0	0	0	0	0	0	0	0	0	0
+5 rows × 11820 columns
+
+In [ ]:
+
+In [ ]:
+doc_len = [len(doc) for doc in data]
+In [ ]:
+import seaborn as sns
+
+sns.distplot(doc_len);
+TfidfVectorizer
+Term Frequency - Inverse Document Frequency (TF-IDF)
+Term Frequency: Percentage of words in document for each word
+
+Document Frequency: A penalty for the word existing in a high number of documents.
+
+The purpose of TF-IDF is to find what is unique to each document. Because of this we will penalize the term frequencies of words that are common across all documents which will allow for each document's most different topics to rise to the top.
+
+In [20]:
+from sklearn.feature_extraction.text import TfidfVectorizer
+
+# Instantiate vectorizer object
+tfidf = TfidfVectorizer(stop_words='english')
+
+# Create a vocabulary and get word counts per document
+# Similiar to fit_predict
+dtm = tfidf.fit_transform(data)
+
+# Print word counts
+
+# Get feature names to use as dataframe column headers
+dtm = pd.DataFrame(dtm.todense(), columns=tfidf.get_feature_names())
+
+# View Feature Matrix as DataFrame
+dtm.head()
+Out[20]:
+00	000	000s	0051	007	01	028	04m	05	0530	...	zip	zodiac	zombie	zombies	zone	zonealarm	zones	zoom	zooms	zurich
+0	0.0	0.027410	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	...	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0
+1	0.0	0.000000	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	...	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0
+2	0.0	0.059127	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	...	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0
+3	0.0	0.000000	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	...	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0
+4	0.0	0.000000	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	...	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0
+5 rows × 11820 columns
+
+In [21]:
+def tokenize(document):
+    
+    doc = nlp(document)
+    
+    return [token.lemma_.strip() for token in doc if (token.is_stop != True) and (token.is_punct != True)]
+text data machines
+
+"text data" "data machines" "text machines"
+
+In [22]:
+# Tunning Parameters
+
+# Instantiate vectorizer object
+tfidf = ...
+
+# Create a vocabulary and get word counts per document
+dtm = ... # Similiar to fit_predict
+
+# Print word counts
+
+# Get feature names to use as dataframe column headers
+dtm = ...
+
+# View Feature Matrix as DataFrame
+dtm.head()
+Out[22]:
+accord	apple	company	computer	game	high	microsoft	mobile	mr	net	...	xbox	xp	yahoo	year	year	year ago	year say	york	young	£
+0	0.000000	0.0	0.0	0.0	0.0	0.0	0.000000	0.0578	0.0	0.00000	...	0.000000	0.0	0.0	0.092030	0.0	0.0	0.000000	0.06066	0.057163	0.03641
+1	0.102709	0.0	0.0	0.0	0.0	0.0	0.000000	0.0000	0.0	0.00000	...	0.000000	0.0	0.0	0.071240	0.0	0.0	0.099392	0.00000	0.000000	0.00000
+2	0.000000	0.0	0.0	0.0	0.0	0.0	0.000000	0.0000	0.0	0.00000	...	0.041413	0.0	0.0	0.073984	0.0	0.0	0.000000	0.00000	0.000000	0.05854
+3	0.000000	0.0	0.0	0.0	0.0	0.0	0.071441	0.0000	0.0	0.00000	...	0.000000	0.0	0.0	0.000000	0.0	0.0	0.000000	0.00000	0.000000	0.00000
+4	0.000000	0.0	0.0	0.0	0.0	0.0	0.000000	0.0000	0.0	0.11628	...	0.000000	0.0	0.0	0.020163	0.0	0.0	0.056262	0.00000	0.000000	0.00000
+5 rows × 1571 columns
+
+In [23]:
+dtm.shape
+Out[23]:
+(401, 1571)
+Challenge
+During this module's project assignment, you will transform data science job listings to vector representations for analysis downstream.
+
+Query Documents by Similarity (Learn)
+
+Overview
+Have you ever considered how a search bar works? You may just think that search bars simply match your input text againist the documents. While there are many different mechanisms for the 'match', one of the most classic is to search by similarity. We will apply n-dimensional distance to measure similarity, and query for input and output.
+
+Follow Along
+Cosine Similarity (Brute Force)
+In [24]:
+# Calculate Distance of TF-IDF Vectors
+from sklearn.metrics.pairwise import cosine_similarity
+
+dist_matrix  = cosine_similarity(dtm)
+In [25]:
+# Turn it into a DataFrame
+In [26]:
+# Our Similarity Matrix is ? size
+Out[26]:
+(401, 401)
+In [27]:
+# Each row is the similarity of one document to all other documents (including itself)
+df[0][:5]
+Out[27]:
+0    1.000000
+1    0.111524
+2    0.056375
+3    0.014097
+4    0.096583
+Name: 0, dtype: float64
+In [37]:
+# Grab the row
+df[df[0] < 1][0].sort_values(ascending=False)[:5]
+Out[37]:
+0      1.000000
+62     1.000000
+92     0.494435
+297    0.475280
+300    0.455950
+Name: 0, dtype: float64
+In [38]:
+print(data[0][:150])
+b"Mobiles rack up 20 years of use\n\nMobile phones in the UK are celebrating their 20th anniversary this weekend.\n\nBritain's first mobile phone call was m"
+In [41]:
+print(data[300][:150])
+b'Home phones face unclear future\n\nThe fixed line phone in your home could soon be an endangered species.\n\nResearch by handset maker Nokia shows that mo'
+NearestNeighbor (K-NN)
+To address the computational inefficiencies of the brute-force approach, a variety of tree-based data structures have been invented. In general, these structures attempt to reduce the required number of distance calculations by efficiently encoding aggregate distance information for the sample. The basic idea is that if point is very distant from point , and point is very close to point , then we know that points and are very distant, without having to explicitly calculate their distance. In this way, the computational cost of a nearest neighbors search can be reduced to or better. This is a significant improvement over brute-force for large data.
+
+To address the inefficiencies of KD Trees in higher dimensions, the ball tree data structure was developed. Where KD trees partition data along Cartesian axes, ball trees partition data in a series of nesting hyper-spheres. This makes tree construction more costly than that of the KD tree, but results in a data structure which can be very efficient on highly structured data, even in very high dimensions.
+
+A ball tree recursively divides the data into nodes defined by a centroid and radius , such that each point in the node lies within the hyper-sphere defined by and . The number of candidate points for a neighbor search is reduced through use of the triangle inequality:
+
+With this setup, a single distance calculation between a test point and the centroid is sufficient to determine a lower and upper bound on the distance to all points within the node. Because of the spherical geometry of the ball tree nodes, it can out-perform a KD-tree in high dimensions, though the actual performance is highly dependent on the structure of the training data. In scikit-learn, ball-tree-based neighbors searches are specified using the keyword algorithm = 'ball_tree', and are computed using the class sklearn.neighbors.BallTree. Alternatively, the user can work with the BallTree class directly.
+
+In [42]:
+dtm.head()
+Out[42]:
+accord	apple	company	computer	game	high	microsoft	mobile	mr	net	...	xbox	xp	yahoo	year	year	year ago	year say	york	young	£
+0	0.000000	0.0	0.0	0.0	0.0	0.0	0.000000	0.0578	0.0	0.00000	...	0.000000	0.0	0.0	0.092030	0.0	0.0	0.000000	0.06066	0.057163	0.03641
+1	0.102709	0.0	0.0	0.0	0.0	0.0	0.000000	0.0000	0.0	0.00000	...	0.000000	0.0	0.0	0.071240	0.0	0.0	0.099392	0.00000	0.000000	0.00000
+2	0.000000	0.0	0.0	0.0	0.0	0.0	0.000000	0.0000	0.0	0.00000	...	0.041413	0.0	0.0	0.073984	0.0	0.0	0.000000	0.00000	0.000000	0.05854
+3	0.000000	0.0	0.0	0.0	0.0	0.0	0.071441	0.0000	0.0	0.00000	...	0.000000	0.0	0.0	0.000000	0.0	0.0	0.000000	0.00000	0.000000	0.00000
+4	0.000000	0.0	0.0	0.0	0.0	0.0	0.000000	0.0000	0.0	0.11628	...	0.000000	0.0	0.0	0.020163	0.0	0.0	0.056262	0.00000	0.000000	0.00000
+5 rows × 1571 columns
+
+In [44]:
+from sklearn.neighbors import NearestNeighbors
+
+# Fit on DTM
+nn = NearestNeighbors(n_neighbors=5, algorithm='kd_tree')
+nn.fit(dtm)
+Out[44]:
+NearestNeighbors(algorithm='kd_tree', leaf_size=30, metric='minkowski',
+         metric_params=None, n_jobs=None, n_neighbors=5, p=2, radius=1.0)
+In [50]:
+nn.kneighbors([dtm.iloc[0].values])
+Out[50]:
+(array([[0.        , 0.        , 1.00554953, 1.02442132, 1.04311985]]),
+ array([[  0,  62,  92, 297, 300]]))
+In [ ]:
+# Instantiate
+from sklearn.neighbors import NearestNeighbors
+
+# Fit on TF-IDF Vectors
+nn  = NearestNeighbors(n_neighbors=5, algorithm='kd_tree')
+nn.fit(dtm)
+In [51]:
+# Query Using kneighbors 
+nn.kneighbors([dtm.iloc[356]])
+Out[51]:
+(array([[0.        , 0.89881272, 0.99816438, 1.07683365, 1.22612084]]),
+ array([[356, 328, 235, 266, 221]]))
+In [52]:
+data[356][:200]
+Out[52]:
+b'Why Cell will get the hard sell\n\nThe world is casting its gaze on the Cell processor for the first time, but what is so important about it, and why is it so different?\n\nThe backers of the processor ar'
+In [53]:
+data[328][:200]
+Out[53]:
+b"PlayStation 3 processor unveiled\n\nThe Cell processor, which will drive Sony's PlayStation 3, will run 10-times faster than current PC chips, its designers have said.\n\nSony, IBM and Toshiba, who have b"
+In [54]:
+rndm_tech_article = [ """
+Unlike other computational devices that treats scalar or vectors as primitives, Google’s TPU treats matrices as primitives. The TPU is designed to perform matrix multiplication at a massive scale. If you look at the diagram above, you notice that that the device doesn’t have high bandwidth to memory. It uses DDR3 with only 30GB/s to memory. Contrast that to the a Nvidia Titan X with GDDR5X hitting transfer speeds of 480GB/s. The systolic array trades off speed for throughput. A Titan X has 3,583 CUDA cores. The CUDA cores are 32bit and are more general purpose than 8bit cores of the TPU. Apparently, Google knew likely way back in 2014 that 8bit was good enough (note: Google had deployed TPU as early as 2015).
+Systolic arrays are heavily pipelined, given that it is 256 units wide, it takes 256 cycles from the time the first element gets into the array to the time it comes out. Twice that many cycles for everything that needs to get it, to all come out. However, at its peak, you’ll get 65k processors all cranking together. Here’s a slide that shows how a systolic array performs matrix multiplication
+
+"""]
+In [55]:
+# Query for Sim of Random doc to BBC
+new = tfidf.transform(rndm_tech_article)
+In [56]:
+new
+Out[56]:
+<1x1571 sparse matrix of type '<class 'numpy.float64'>'
+	with 34 stored elements in Compressed Sparse Row format>
+In [57]:
+nn.kneighbors(new.todense())
+Out[57]:
+(array([[1.23438559, 1.25836033, 1.26748496, 1.28588592, 1.2962287 ]]),
+ array([[151, 255,  39, 292, 232]]))
+In [59]:
+# Inspect Most relevant result
+data[255]
+Out[59]:
+b'China \'blocks Google news site\'\n\nChina has been accused of blocking access to Google News by the media watchdog, Reporters Without Borders.\n\nThe Paris-based pressure group said the English-language news site had been unavailable for the past 10 days. It said the aim was to force people to use a Chinese edition of the site which, according to the watchdog, does not include critical reports. Google told the BBC News website it was aware of the problems and was investigating the causes.\n\nChina is believed to extend greater censorship over the net than any other country in the world.\n\nA net police force monitors websites and e-mails, and controls on gateways connecting the country to the global internet are designed to prevent access to critical information. Popular Chinese portals such as Sina.com and Sohu.com maintain a close eye on content and delete politically sensitive comments. And all 110,000 net cafes in the country have to use software to control access to websites considered harmful or subversive.\n\n"China is censoring Google News to force internet users to use the Chinese version of the site which has been purged of the most critical news reports," said the group in a statement. "By agreeing to launch a news service that excludes publications disliked by the government, Google has let itself be used by Beijing," it said. For its part, the search giant said it was looking into the issue. "It appears that many users in China are having difficulty accessing Google News sites in China and we are working to understand and resolve the issue," said a Google spokesperson. Google News gathers information from some 4,500 news sources. Headlines are selected for display entirely by a computer algorithm, with no human editorial intervention. It offers 15 editions of the service, including one tailored for China and one for Hong Kong. Google launched a version in simplified Chinese in September. The site does not filter news results to remove politically sensitive information. But Google does not link to news sources which are inaccessible from within China as this would result in broken links.\n'
+Challenge
+In the module project assignment, you will apply one of these search techniques to retrieve documents related to a query document.
+
+Apply word embedding models to create document vectors (Learn)
+
+Overview
+BoW discards textual context
+One of the limitations of Bag-of-Words approaches is that any information about the textual context surrounding that word is lost. This also means that with bag-of-words approaches often the only tools that we have for identifying words with similar usage or meaning and subsequently consolidating them into a single vector is through the processes of stemming and lemmatization which tend to be quite limited at consolidating words unless the two words are very close in their spelling or in their root parts-of-speech.
+
+Embedding approaches preserve more textual context
+Word2Vec is an increasingly popular word embedding technique. Like Bag-of-words it learns a real-value vector representation for a predefined fixed-size vocabulary that is generated from a corpus of text. However, in contrast to BoW, Word2Vec approaches are much more capable of accounting for textual context, and are better at discovering words with similar meanings or usages (semantic or syntactic similarity).
+
+Word2Vec Intuition
+The Distribution Hypothesis
+In order to understand how Word2Vec preserves textual context we have to understand what's called the Distribution Hypothesis (Reference: Distribution Hypothesis Theory -https://en.wikipedia.org/wiki/Distributional_semantics. The Distribution Hypothesis operates under the assumption that words that have similar contexts will have similar meanings. Practically speaking, this means that if two words are found to have similar words both to the right and to the left of them throughout the corpora then those words have the same context and are assumed to have the same meaning.
+
+"You shall know a word by the company it keeps" - John Firth
+
+This means that we let the usage of a word define its meaning and its "similarity" to other words. In the following example, which words would you say have a similar meaning?
+
+Sentence 1: Traffic was light today
+
+Sentence 2: Traffic was heavy yesterday
+
+Sentence 3: Prediction is that traffic will be smooth-flowing tomorrow since it is a national holiday
+
+What words in the above sentences seem to have a similar meaning if all you knew about them was the context in which they appeared above?
+
+Lets take a look at how this might work in action, the following example is simplified, but will give you an idea of the intuition for how this works.
+
+Corpora:
+1) "It was the sunniest of days."
+
+2) "It was the raniest of days."
+
+Vocabulary:
+{"it": 1, "was": 2, "the": 3, "of": 4, "days": 5, "sunniest": 6, "raniest": 7}
+
+Vectorization
+doc	START_was	it_the	was_sunniest	the_of	sunniest_days	of_it	days_was	it_the	was_raniest	raniest_days	of_END
+it	1	0	0	0	0	0	1	0	0	0	0
+was	0	1	0	0	0	0	0	1	0	0	0
+the	0	0	1	0	0	0	0	0	1	0	0
+sunniest	0	0	0	1	0	0	0	0	0	0	0
+of	0	0	0	0	1	0	0	0	0	1	0
+days	0	0	0	0	0	0	0	0	0	0	1
+raniest	0	0	0	1	0	0	0	0	0	0	0
+Each column vector represents the word's context -in this case defined by the words to the left and right of the center word. How far we look to the left and right of a given word is referred to as our "window of context." Each row vector represents the the different usages of a given word. Word2Vec can consider a larger context than only words that are immediately to the left and right of a given word, but we're going to keep our window of context small for this example. What's most important is that this vectorization has translated our documents from a text representation to a numeric one in a way that preserves information about the underlying context.
+
+We can see that words that have a similar context will have similar row-vector representations, but before looking that more in-depth, lets simplify our vectorization slightly. You'll notice that we're repeating the column-vector "it_the" twice. Lets combine those into a single vector by adding them element-wise.
+
+*	START_was	it_the	was_sunniest	the_of	sunniest_days	of_it	days_was	was_raniest	raniest_days	of_END
+it	1	0	0	0	0	0	1	0	0	0
+was	0	2	0	0	0	0	0	0	0	0
+the	0	0	1	0	0	0	0	1	0	0
+sunniest	0	0	0	1	0	0	0	0	0	0
+of	0	0	0	0	1	0	0	0	1	0
+days	0	0	0	0	0	0	0	0	0	1
+raniest	0	0	0	1	0	0	0	0	0	0
+Now, can you spot which words have a similar row-vector representation? Hint: Look for values that are repeated in a given column. Each column represents the context that word was found in. If there are multiple words that share a context then those words are understood to have a closer meaning with each other than with other words in the text.
+
+Lets look specifically at the words sunniest and raniest. You'll notice that these two words have exactly the same 10-dimensional vector representation. Based on this very small corpora of text we would conclude that these two words have the same meaning because they share the same usage. Is this a good assumption? Well, they are both referring to the weather outside so that's better than nothing. You could imagine that as our corpora grows larger we will be exposed a greater number of contexts and the Distribution Hypothesis assumption will improve.
+
+Word2Vec Variants
+Skip-Gram
+The Skip-Gram method predicts the neighbors’ of a word given a center word. In the skip-gram model, we take a center word and a window of context (neighbors) words to train the model and then predict context words out to some window size for each center word.
+
+This notion of “context” or “neighboring” words is best described by considering a center word and a window of words around it.
+
+For example, if we consider the sentence “The speedy Porsche drove past the elegant Rolls-Royce” and a window size of 2, we’d have the following pairs for the skip-gram model:
+
+Text: The speedy Porsche drove past the elegant Rolls-Royce
+
+Training Sample with window of 2: (the, speedy), (the, Porsche)
+
+Text: The speedy Porsche drove past the elegant Rolls-Royce
+
+Training Sample with window of 2: (speedy, the), (speedy, Porsche), (speedy, drove)
+
+Text: The speedy Porsche drove past the elegant Rolls-Royce
+
+Training Sample with window of 2: (Porsche, the), (Porsche, speedy), (Porsche, drove), (Porsche, past)
+
+Text: The speedy Porsche drove past the elegant Rolls-Royce
+
+Training Sample with window of 2: (drove, speedy), (drove, Porsche), (drove, past), (drove, the)
+
+The Skip-gram model is going to output a probability distribution i.e. the probability of a word appearing in context given a center word and we are going to select the vector representation that maximizes the probability.
+
+With CountVectorizer and TF-IDF the best we could do for context was to look at common bi-grams and tri-grams (n-grams). Well, skip-grams go far beyond that and give our model much stronger contextual information.
+
+alt text
+
+Continuous Bag of Words
+This model takes thes opposite approach from the skip-gram model in that it tries to predict a center word based on the neighboring words. In the case of the CBOW model, we input the context words within the window (such as “the”, “Proshe”, “drove”) and aim to predict the target or center word “speedy” (the input to the prediction pipeline is reversed as compared to the SkipGram model).
+
+A graphical depiction of the input to output prediction pipeline for both variants of the Word2vec model is attached. The graphical depiction will help crystallize the difference between SkipGrams and Continuous Bag of Words.
+
+alt text
+
+Notable Differences between Word Embedding methods:
+1) W2V focuses less document topic-modeling. You'll notice that the vectorizations don't really retain much information about the original document that the information came from. At least not in our examples.
+
+2) W2V can result in really large and complex vectorizations. In fact, you need Deep Neural Networks to train your Word2Vec models from scratch, but we can use helpful pretrained embeddings (thank you Google) to do really cool things!
+
+^ All that noise....AND Spacy has pretrained a Word2Vec model you can just use? WTF JC?
+
+Let's take a look at how to do it.
+
+In [60]:
+# Process a text
+doc = nlp("Two bananas in pyjamas")
+
+# Get the vector for the token "bananas"
+bananas_vector = doc.vector
+print(bananas_vector)
+[ 2.07984239e-01 -2.60890484e-01 -1.15457252e-01 -1.96443751e-01
+ -2.83249468e-03  3.55849974e-02 -2.05170006e-01 -2.27374747e-01
+  8.56052488e-02  1.36894751e+00 -5.74124977e-02  8.06210041e-02
+  2.37275064e-02  1.17454052e-01 -6.53099641e-03 -1.24400005e-01
+  1.99086756e-01  6.37722552e-01  1.52916998e-01 -2.33504996e-01
+ -2.40909994e-01 -7.11500049e-02 -9.10753161e-02  7.16734976e-02
+  1.16262749e-01 -3.91372502e-01  1.13048747e-01 -2.11327493e-01
+  1.09019078e-01 -2.44885415e-01  3.00577488e-02  4.77855802e-02
+  7.37800002e-02  2.57142037e-01  2.62586236e-01 -1.66897491e-01
+  1.87596500e-01 -1.23680010e-02 -1.76299751e-01  1.11685000e-01
+  1.82024967e-02  9.86500084e-03 -3.58770013e-01 -2.23265499e-01
+ -4.37720008e-02  3.63999486e-01  7.42954984e-02  1.21225506e-01
+  1.37013003e-01 -5.50666526e-02  2.66017504e-02  8.87180045e-02
+ -1.14092499e-01 -2.02865750e-01  3.63092512e-01 -3.08394760e-01
+  1.13859497e-01  3.13650146e-02  2.62076259e-01  1.90399922e-02
+  7.24634901e-02  2.79004984e-02  8.65525007e-02  6.92452565e-02
+ -9.77424979e-02 -1.47966757e-01  2.32025003e-03  1.62278250e-01
+  1.59857497e-02  3.52048993e-01 -5.51802553e-02  2.13179991e-01
+  3.63152504e-01  1.01501703e-01  1.73463732e-01  9.20909941e-02
+  1.27134249e-01  1.00527555e-02  2.44570002e-01 -6.89124968e-03
+  6.30075037e-02  1.31706819e-01 -1.36811763e-01 -3.73892523e-02
+ -1.71941705e-02 -1.47585243e-01  2.69147515e-01  1.97296605e-01
+ -1.14209257e-01  7.49210045e-02  1.12407543e-02  6.53382465e-02
+  7.39065409e-02 -1.47568747e-01 -9.98437554e-02  2.56100774e-01
+  3.41899954e-02 -1.95817441e-01  1.52259752e-01 -2.98299998e-01
+  3.71480025e-02  1.38142243e-01 -3.84989977e-02 -2.02540010e-02
+  2.38000415e-03 -8.94232512e-01  1.20125249e-01 -1.48699433e-03
+  3.07812482e-01  1.31904989e-01  2.28665009e-01 -4.28467512e-01
+ -1.50100499e-01 -3.99947166e-05  7.09750131e-03 -9.08460468e-02
+  1.15139998e-01  2.73323029e-01  6.97097555e-02  1.37960017e-01
+ -7.76264742e-02 -3.58945057e-02  1.47073746e-01 -2.70538747e-01
+ -4.16769907e-02 -2.20907256e-01  1.29162997e-01  5.66806756e-02
+ -2.10923001e-01 -1.12912245e-01 -1.24349967e-02  2.90902629e-02
+ -9.14399922e-02  1.48545001e-02  1.73015013e-01  2.45295018e-01
+  2.36412495e-01  1.51691005e-01 -6.30199909e-02  2.67812014e-01
+ -1.31286001e+00 -7.58474991e-02  1.29823506e-01 -1.51231751e-01
+ -8.19625035e-02  1.39788002e-01 -1.48047015e-01  6.38692454e-02
+  2.33854756e-01 -9.88075137e-03  1.93658501e-01  2.27525085e-03
+  4.02045511e-02 -4.90897447e-02 -3.33292484e-01 -2.25562245e-01
+ -2.13249400e-03 -1.25110000e-01 -2.07584769e-01 -8.20675045e-02
+ -3.08577478e-01  2.42340490e-01  1.01082012e-01  1.69142485e-02
+ -2.96225518e-01 -2.39765748e-01 -2.06788242e-01 -2.19947502e-01
+  1.32491991e-01  2.83937510e-02 -2.12792531e-02  2.11183250e-01
+  7.47520030e-02  5.15667535e-02 -2.79584527e-01  5.96700013e-02
+ -1.40897244e-01 -7.72149861e-03  9.76998210e-02 -2.29924992e-01
+ -3.91512439e-02 -2.62144983e-01 -9.46324915e-02 -1.49488509e-01
+ -4.47402522e-02  4.87175062e-02 -1.00491997e-02 -1.57508999e-01
+  1.83425248e-01 -7.38234967e-02 -5.53542078e-02  3.62554997e-01
+  6.00774996e-02 -3.51069048e-02 -2.12482512e-02 -5.44437282e-02
+  5.77000529e-03 -4.17417213e-02 -2.30720505e-01  3.05450335e-03
+ -2.60736495e-01  9.90725309e-03  1.44257501e-01  1.58988327e-01
+  3.12480003e-01 -4.21992540e-02  1.47941500e-01 -2.60480493e-03
+ -1.18254803e-01  3.76944989e-02  8.56549889e-02  2.98762500e-01
+ -1.82907507e-01 -5.01237512e-01 -3.22812736e-01 -1.04721501e-01
+ -2.11069018e-01 -1.58998221e-01 -1.63172990e-01 -1.53411508e-01
+ -4.72389996e-01 -2.52688266e-02  6.80677444e-02 -3.47925007e-01
+  1.00139998e-01  3.17759998e-02 -2.02882513e-02  2.72649899e-02
+  2.80047543e-02  6.36423454e-02 -2.32529998e-01  1.78696245e-01
+ -4.16299030e-02 -6.78092465e-02 -1.87866479e-01 -3.47625017e-01
+  5.43992445e-02 -1.05034754e-01  3.68332490e-02  2.01451257e-01
+ -2.68060744e-01 -7.03077465e-02 -3.46807480e-01  1.18331507e-01
+  3.82332467e-02 -1.15444995e-01 -9.92614999e-02 -4.42850590e-03
+ -3.42225015e-01  3.17104995e-01 -1.48628756e-01 -6.13242462e-02
+ -8.43070000e-02  1.16139993e-01  1.61483496e-01  1.70949996e-01
+  1.95979327e-01  2.56112486e-01 -2.15889998e-02 -2.78974995e-02
+  2.59169757e-01  1.79182500e-01 -2.46662006e-01  1.68815508e-01
+ -3.45774740e-03  2.30412483e-01 -1.22785002e-01  2.36632437e-01
+ -4.52876002e-01 -3.92082512e-01 -2.01881751e-01 -1.27992496e-01
+  2.75517516e-02  5.54060042e-02 -3.12609941e-01  1.01338752e-01
+  1.83728248e-01  4.08405006e-01  1.23905048e-01  4.37955022e-01
+  2.54640013e-01 -6.01055101e-02 -2.90097505e-01  7.99837485e-02
+  6.81065023e-02  6.80774972e-02  1.45408496e-01 -1.65033251e-01
+ -6.48526996e-02 -1.71237499e-01 -5.75472489e-02 -4.43175063e-03
+  2.72267759e-01 -2.11504504e-01 -2.87027508e-01  3.25110495e-01
+ -4.72727492e-02 -3.86672527e-01  2.08224997e-01  1.24032997e-01]
+In [61]:
+len(bananas_vector)
+Out[61]:
+300
+In [62]:
+doc1 = nlp("It's a warm summer day")
+doc2 = nlp("I like dogs.")
+
+# Get the similarity of doc1 and doc2
+similarity = doc1.similarity(doc2)
+print(similarity)
+0.6325917019333428
+In [63]:
+# import the PCA module from sklearn
+from sklearn.decomposition import PCA
+
+def get_word_vectors(words):
+    # converts a list of words into their word vectors
+    return [nlp(word).vector for word in words]
+
+words = ['car', 'truck', 'suv', 'race', 'elves', 'dragon', 'sword', 'king', 'queen', 'prince', 'horse', 'fish' , 'lion', 'tiger', 'lynx', 'potato']
+
+# intialise pca model and tell it to project data down onto 2 dimensions
+pca = PCA(n_components=2)
+
+# fit the pca model to our 300D data, this will work out which is the best 
+# way to project the data down that will best maintain the relative distances 
+# between data points. It will store these intructioons on how to transform the data.
+pca.fit(get_word_vectors(words))
+
+# Tell our (fitted) pca model to transform our 300D data down onto 2D using the 
+# instructions it learnt during the fit phase.
+word_vecs_2d = pca.transform(get_word_vectors(words))
+
+# let's look at our new 2D word vectors
+word_vecs_2d
+Out[63]:
+array([[ 5.15021219, -1.02589405],
+       [ 4.68847306, -0.32752874],
+       [ 4.18183622, -1.25490821],
+       [ 2.3045236 , -0.62841121],
+       [-1.6975279 , -1.26790577],
+       [-2.19008419,  0.0674359 ],
+       [-2.41987038, -1.23168885],
+       [-2.4303113 , -2.84156896],
+       [-1.9405539 , -2.55571106],
+       [-2.16312982, -2.6337209 ],
+       [ 0.66759362,  0.42236702],
+       [-0.36687779,  4.15296085],
+       [-1.89448123,  1.39241361],
+       [-1.44081158,  2.52885279],
+       [-0.87134078,  2.86535252],
+       [ 0.42235018,  2.33795505]])
+In [64]:
+# create a nice big plot 
+plt.figure(figsize=(20,15))
+
+# plot the scatter plot of where the words will be
+plt.scatter(word_vecs_2d[:,0], word_vecs_2d[:,1])
+
+# for each word and coordinate pair: draw the text on the plot
+for word, coord in zip(words, word_vecs_2d):
+    x, y = coord
+    plt.text(x, y, word, size= 15)
+
+# show the plot
+plt.show()
+
+Follow Along
+Extract Document Vectors
+Let's see how much the quality of our query will work when we try a new embedding model.
+
+Steps:
+
+Extract Vectors from Each Document
+Search using KNN
+In [65]:
+X = [nlp(str(d)).vector for d in data]
+In [ ]:
+X[0]
+Challenge
+You will extract word embeddings from documents using Spacy's pretrained model in the upcoming module project.
+
+Review
+For your module project assignment you will create vector repsentations of indeed.com Data Science job listings. You will then estimate a similarity model to perform searches for job descriptions. Get started with your module project here
+
+Sources
+Spacy 101 - https://course.spacy.io
+NLTK Book - https://www.nltk.org/book/
+An Introduction to Information Retrieval - https://nlp.stanford.edu/IR-book/pdf/irbookonlinereading.pdf
